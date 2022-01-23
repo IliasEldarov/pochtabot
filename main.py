@@ -1,6 +1,5 @@
 import math
-import sys
-
+#from suds import *
 
 # Section 1. Recursion, call stack
 def factorial_rec(x):
@@ -11,13 +10,18 @@ def factorial_rec(x):
 
 print(factorial_rec(30))
 
+from suds import *
+
 # 1.2 - Calculate 3000! Solve the problem you face without rewriting
+from suds import *
 sys.setrecursionlimit(350)
 print('300!', factorial_rec(300))
 
 
 # 1.3 What about 30000! calculation? Provide a non-recursive function
 # #and compare the answer with math.factorial one
+import math
+
 def factorial_non_recursion(x):
     if x == 0 or x == 1:
         return 1
@@ -30,7 +34,7 @@ def factorial_non_recursion(x):
 
 result = factorial_non_recursion(30000)
 result2 = math.factorial(30000)
-print('compare  result:', result == result2)
+print('Are they identical? ', 'Yes!' if result == result2 else 'no')
 
 age_spans = [
     {'age': '< 5', 'percent': 1.09}, {'age': '5 - 10', 'percent': 14.08},
@@ -105,7 +109,6 @@ def retry_if_none_arg(n=1):
     return retry_if_none_decorator
 
 
-@retry_if_none
 @retry_if_none_arg(3)
 @retry_if_none_arg()
 def my_function(cnt: int) -> int:
@@ -113,4 +116,5 @@ def my_function(cnt: int) -> int:
     if cnt == 0:
         return None
     return cnt
+
 my_function(0)
