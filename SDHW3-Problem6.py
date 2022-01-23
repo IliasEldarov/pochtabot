@@ -283,11 +283,10 @@ myMachine.purcaseItem(7, {myMachine.billS20: 50}) # fail - can not find exact ch
 myMachine.purcaseItem(7, {myMachine.coin25c: 1})  # fail - payment is not enough
 
 # TC 4 - user wants to purchase a Python book
-# notice that 5 of 100 cent bills were given as a change and 10 bill got into cashier
+# if the two belows prints are enabled you will see the cashier state before and after purchase
 #print(myMachine.infoOnCashier())
 myMachine.purcaseItem(7, {myMachine.billS10: 1})  # SUCCESS!
 #print(myMachine.infoOnCashier())
-
 
 # TC 5
 myMachine.purcaseItem(7, {myMachine.billS10: 1})  # fail - out of stock
