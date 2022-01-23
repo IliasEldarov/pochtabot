@@ -104,7 +104,6 @@ class VendingMachine:
     # use case #4 - User purchases an item from shelf
     # we will assume that user
     def purcaseItem(self, shelfNumber, payments):
-        #print("Purchasing of an item by user")
         insertedMoney = 0
         for payment in payments.keys():
             insertedMoney += payment[0]*payments[payment]
@@ -148,11 +147,7 @@ class VendingMachine:
         if changeConfiguration:
             print(f"Total change: {changeAmount} cents")
 
-        #if cashier[self.coin25c] >= changeConfiguration[self.coin25c]:
-        #    cashier[self.coin25c] -= changeConfiguration[self.coin25c]
-
         # step B - inserted payment needs to marked as it is in the cashier
-        #cashier[self.billS10] += 1
         for payment in payments.keys():
             cashier[payment] += payments[payment]
 
@@ -221,7 +216,7 @@ snickersXXL = ("Snickers XXL bar", 200)
 bounty = ("Bounty bar", 200)
 coke = ("Can of Coke", 150)
 dietCoke = ("Can of Diet Coke", 150)
-pythonBook = ("Applying Python for Convex Problems", 506)# yes, it is expensive!
+pythonBook = ("Python for Convex Problems", 506)  # yes, it is expensive!
 vending_items = set()
 vending_items.add(mars)
 vending_items.add(snickers)
@@ -233,7 +228,7 @@ vending_items.add(pythonBook)
 myMachine.provision(vending_items)
 
 # operator loads vending items to the machine
-myMachine.addInventory(0, mars, 30) # fail - exceed capacity of shelf
+myMachine.addInventory(0, mars, 30)  # fail - exceed capacity of shelf
 myMachine.addInventory(1, mars, 20)
 myMachine.addInventory(2, mars, 15)
 myMachine.addInventory(2, mars, 15)
@@ -242,7 +237,7 @@ myMachine.addInventory(4, bounty, 10)
 myMachine.addInventory(5, coke, 10)
 myMachine.addInventory(6, dietCoke, 5)
 myMachine.addInventory(7, pythonBook, 1)
-myMachine.addInventory(8, dietCoke, 5)# fail - no such shelf
+myMachine.addInventory(8, dietCoke, 5)  # fail - no such shelf
 # operator gets report on what items were loaded into machine
 print(myMachine.infoOnInventory())
 
@@ -263,8 +258,11 @@ myMachine.loadCashier(cashier)
 print(myMachine.infoOnCashier())
 
 # operator collects bills (after some time the machine was used)
-myMachine.substractMoneyFromCashier(myMachine.billS5, 50) # 250 dollars withdrawn
-myMachine.substractMoneyFromCashier(myMachine.billS10, 10) # 100 dollars withdrawn
+# attempt to withdrawn 250 dollars
+myMachine.substractMoneyFromCashier(myMachine.billS5, 50)
+
+# attempt to withdrawn 100 dollars
+myMachine.substractMoneyFromCashier(myMachine.billS10, 10)
 ###############################################################################
 ###############################################################################
 ###############################################################################
@@ -274,10 +272,10 @@ myMachine.substractMoneyFromCashier(myMachine.billS10, 10) # 100 dollars withdra
 #
 # User wants to purchase an item from shelf
 # TC 1
-myMachine.purcaseItem(77, {myMachine.coin25c: 1}) # fail - vending item is not found
+myMachine.purcaseItem(77, {myMachine.coin25c: 1})  # fail - vending item is not found
 
 # TC 2
-myMachine.purcaseItem(7, {myMachine.billS20: 50}) # fail - can not find exact change to return
+myMachine.purcaseItem(7, {myMachine.billS20: 50})  # fail - can not find exact change to return
 
 # TC 3
 myMachine.purcaseItem(7, {myMachine.coin25c: 1})  # fail - payment is not enough
