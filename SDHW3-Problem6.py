@@ -3,18 +3,22 @@ class VendingMachine:
     def __init__(self):
         # means of payment - coin and bill types
         # first tuple item: value in cents. Second: if it can be returned to user as a change?
-        # these items are defined on the factory
+        # defined on factory and can not be altered by operator
+
         self.coin1c = (1, True)
         self.coin5c = (5, True)
         self.coin10c = (10, True)
         self.coin25c = (25, True)
-        self.billS1 = (100, False)
+        self.billS1 = (100, True)
         self.billS5 = (500, False)
         self.billS10 = (1000, False)
         self.billS20 = (2000, False)
 
-        self.inventory_shelves = ()
-        self.inventory_shelves_capacity = ()
+        # shelfs and their capacities are defined on factory and can not be altered by operator
+        self.inventory_shelves = (0, 1, 2, 3, 4, 5, 6, 7)
+        self.inventory_shelves_capacity = (20, 20, 20, 20, 10, 10, 10, 10)
+        assert(len(self.inventory_shelves) == len(self.inventory_shelves_capacity))
+
         self.cashier = dict()
         self.vending_items = set()
         self.inventory = dict()
@@ -37,12 +41,20 @@ class VendingMachine:
 
         if shelf not in self.inventory_shelves:
             #unknows shelf
+            print("cant add item to unknown shelf")
             return False
-        #TODO reaction on exceeding shelf capacity
-        # self.inventory_shelves_capacity = (20, 20, 20, 20, 10, 10, 10)
+
+        if shelf not in self.inventory.keys():
+            if quantity > self.inventory_shelves_capacity[shelf]:
+                print("cant add item to shelf - exceeding capacity")
+                return False
+        elif self.inventory[shelf][1] + quantity > self.inventory_shelves_capacity[shelf]:
+            print("cant add item to shelf - exceeding capacity")
+            return False
 
         if vending_item not in self.vending_items:
             # unknown vendingItem
+            print("cant add item to shelf - unknows item")
             return False
 
         self.inventory[shelf] = [vending_item, quantity]
@@ -66,13 +78,10 @@ class VendingMachine:
             return False
         else:
             cashier[paymentMethod] -= quantity  # 250 dollars withdrawn
-            return False
+            return True
 
     # use case #3.C - Vendor resets everything
     def reset(self):
-        self.inventory_shelves = (0, 1, 2, 3, 4, 5, 7)
-        self.inventory_shelves_capacity = (20, 20, 20, 20, 10, 10, 10)
-        assert(len(self.inventory_shelves) == len(self.inventory_shelves_capacity))
 
         # cashier - current state of funds inside the machine
         # coins and bills along with their quantity
@@ -83,7 +92,8 @@ class VendingMachine:
         self.vending_items = set()
         # inventory - current state of machine inventory
         # key: shelf id, it has to be entered by user to purchase the item
-        # value - 2-value array: [0] one of the registered vending items (see below), [1] - it's current stock, i.e. how many of them are currently available
+        # value - 2-value array: [0] one of the registered vending items (see below),
+        # [1] - it's current stock, i.e. how many of them are currently available
         self.inventory = dict()
 
         # purchases - purchasing history
@@ -94,66 +104,124 @@ class VendingMachine:
     # use case #4 - User purchases an item from shelf
     # we will assume that user
     def purcaseItem(self, shelfNumber, payments):
-
+        #print("Purchasing of an item by user")
         insertedMoney = 0
         for payment in payments.keys():
             insertedMoney += payment[0]*payments[payment]
 
+        if shelfNumber not in self.inventory_shelves:
+            print("Unknown shelf")
+            return False
+
         good = self.inventory[shelfNumber]
         # the system checks if the requested item is available (is in stock)
         if good[1] <= 0:
+            print("Out of stock for the item")
+            return False
+
+        if insertedMoney < good[0][1]:
+            print("Payment is not enough to purchase the item")
             return False
 
         # the system detects/shows the cost of the item - $5
-        print(f"The cost of the item:{good[0][1]}")
+        print(f"Inserted {insertedMoney} cents, the cost of the item is {good[0][1]} cents")
 
-        # the system calculates amount of change:
-        change = insertedMoney - good[0][1]
+        # the system calculates amount of change due:
+        changeAmount = insertedMoney - good[0][1]
 
-        # how many coins and their values to be returned is not shown here
-
-        changeConfiguration = dict()
-        # key - mean of payment object
-        # value - number of coins defined by key to be returned as a change
-
-        # let assume the missing alg. calculated that the change is 20 coins, 25 cents each
-        changeConfiguration[self.coin25c] = 20
+        # we need to calculate how many coins and their values to be returned
+        changeConfiguration = self._getChangeConfiguration(changeAmount)
+        if changeConfiguration is None:
+            # in some cases we will have to refuse purchase because we ran out of change
+            print("Ran out of change or exact change not possible")
+            return False
 
         # the state of cashier needs to be changed
-        # step A - coins defined as change are marked as withdrawn to user
-        if cashier[self.coin25c] >= changeConfiguration[self.coin25c]:
-            cashier[self.coin25c] -= changeConfiguration[self.coin25c]
+        # step A - coins for change are marked as withdrawn to user
+        if changeConfiguration:
+            print("User, take you change:")
 
-        # step B - $10 bill is marked as it is in the cashier, YES!
-        cashier[self.billS10] += 1
+        for paymentMethod in changeConfiguration.keys():
+            print(f"{paymentMethod[0]} cents x {changeConfiguration[paymentMethod]}")
+            cashier[paymentMethod] -= changeConfiguration[paymentMethod]
+
+        if changeConfiguration:
+            print(f"Total change: {changeAmount} cents")
+
+        #if cashier[self.coin25c] >= changeConfiguration[self.coin25c]:
+        #    cashier[self.coin25c] -= changeConfiguration[self.coin25c]
+
+        # step B - inserted payment needs to marked as it is in the cashier
+        #cashier[self.billS10] += 1
+        for payment in payments.keys():
+            cashier[payment] += payments[payment]
 
         # the state of inventory is changed - available stock on the shelf #6 is reduced by 1
         good = self.inventory[shelfNumber]
         good[1] = good[1] - 1
 
-        # purchases log is appened with the sold good
+        # purchases log is appended with the sold good
         if good[0] in self.purchases.items():
             self.purchases[good[0]] += 1
         else:
             self.purchases[good[0]] = 1
 
-        print(self.purchases)
-        print(self.cashier)  # transaction is logged
-        print(self.inventory)  # transaction is logged
+        #print(self.purchases)
+        #print(self.cashier)  # transaction is logged
+        #print(self.inventory)  # transaction is logged
+        return True
 
-###############################################################################
-# Operator-side use cases - machine management done owners of the machine
-# creating machine
+    # alg calculates change, minimizing number of coins to be returned
+    # this protected function
+    def _getChangeConfiguration(self, changeAmount):
+        # Alg should return changeConfiguration where
+        # key - mean of payment object
+        # value - number of coins defined by key to be returned as a change
+
+        changeConfiguration = dict()
+        scannedPaymentMethods = set()
+        while changeAmount != 0:
+
+            paymentOption, availableAuantity = self._calculateChange(changeAmount, scannedPaymentMethods)
+
+            if not paymentOption:
+                # we ran out of options to find exact change
+                return None
+
+            scannedPaymentMethods.add(paymentOption)
+            thisRequiredNumber = int(changeAmount / paymentOption[0])
+            usedCoins = min(availableAuantity, thisRequiredNumber)
+            if not usedCoins:
+                continue
+
+            changeAmount -= usedCoins*paymentOption[0]
+            changeConfiguration[paymentOption] = usedCoins
+
+        return changeConfiguration
+
+    def _calculateChange(self, amount, scannedPaymentMethods):
+        maxAmount = 0
+        maxAmountPaymentMethod = None
+        for paymentMethod in cashier.keys():
+            if paymentMethod not in scannedPaymentMethods and paymentMethod[0] > maxAmount and paymentMethod[1]:
+                maxAmount = paymentMethod[0]
+                maxAmountPaymentMethod = paymentMethod
+
+        return maxAmountPaymentMethod, cashier[maxAmountPaymentMethod] if maxAmountPaymentMethod else None
+#
+# Operator-side use cases - machine management
+#
+# instantiating machine
 myMachine = VendingMachine()
 
-# defining what it sells
+# operator defined what vending items the machine will be capable to sell
 mars = ("Mars bar", 200)
 snickers = ("Snickers bar", 200)
 snickersXXL = ("Snickers XXL bar", 200)
 bounty = ("Bounty bar", 200)
 coke = ("Can of Coke", 150)
 dietCoke = ("Can of Diet Coke", 150)
-pythonBook = ("Applying Python for Convex Problems", 500)# yes, it is expensive!
+pythonBook = ("Applying Python for Convex Problems", 506)# yes, it is expensive!
 vending_items = set()
 vending_items.add(mars)
 vending_items.add(snickers)
@@ -164,39 +232,63 @@ vending_items.add(dietCoke)
 vending_items.add(pythonBook)
 myMachine.provision(vending_items)
 
-# add to the machine vending items - goods
-myMachine.addInventory(0, mars, 20)
+# operator loads vending items to the machine
+myMachine.addInventory(0, mars, 30) # fail - exceed capacity of shelf
 myMachine.addInventory(1, mars, 20)
+myMachine.addInventory(2, mars, 15)
+myMachine.addInventory(2, mars, 15)
 myMachine.addInventory(3, snickers, 10)
 myMachine.addInventory(4, bounty, 10)
 myMachine.addInventory(5, coke, 10)
 myMachine.addInventory(6, dietCoke, 5)
 myMachine.addInventory(7, pythonBook, 1)
-
-# report on what items was loaded into machine
+myMachine.addInventory(8, dietCoke, 5)# fail - no such shelf
+# operator gets report on what items were loaded into machine
 print(myMachine.infoOnInventory())
 
-# loading the machine with money (we need coins for change, cards are not invented yet)
+# operator loads the machine with coins
+# machine need coins for change, because credit cards are not invented yet
 cashier = dict()
 cashier[myMachine.coin1c] = 500
 cashier[myMachine.coin5c] = 200
 cashier[myMachine.coin10c] = 100
 cashier[myMachine.coin25c] = 200
-cashier[myMachine.billS1] = 0
+cashier[myMachine.billS1] = 5
 cashier[myMachine.billS5] = 0
 cashier[myMachine.billS10] = 0
 cashier[myMachine.billS20] = 0
 myMachine.loadCashier(cashier)
 
-# report on money that was loaded into machine
+# operator prints report about money that were loaded into machine
 print(myMachine.infoOnCashier())
 
-# collect bills, these will go to a bank
+# operator collects bills (after some time the machine was used)
 myMachine.substractMoneyFromCashier(myMachine.billS5, 50) # 250 dollars withdrawn
 myMachine.substractMoneyFromCashier(myMachine.billS10, 10) # 100 dollars withdrawn
 ###############################################################################
+###############################################################################
+###############################################################################
+###############################################################################
+#
+# User side use cases including a few negative cases
+#
+# User wants to purchase an item from shelf
+# TC 1
+myMachine.purcaseItem(77, {myMachine.coin25c: 1}) # fail - vending item is not found
 
-# User purchases an item from shelf #7 which is a Python book
+# TC 2
+myMachine.purcaseItem(7, {myMachine.billS20: 50}) # fail - can not find exact change to return
 
-payment = {myMachine.billS10: 1}
-myMachine.purcaseItem(7, payment)
+# TC 3
+myMachine.purcaseItem(7, {myMachine.coin25c: 1})  # fail - payment is not enough
+
+# TC 4 - user wants to purchase a Python book
+# notice that 5 of 100 cent bills were given as a change and 10 bill got into cashier
+#print(myMachine.infoOnCashier())
+myMachine.purcaseItem(7, {myMachine.billS10: 1})  # SUCCESS!
+#print(myMachine.infoOnCashier())
+
+
+# TC 5
+myMachine.purcaseItem(7, {myMachine.billS10: 1})  # fail - out of stock
+
