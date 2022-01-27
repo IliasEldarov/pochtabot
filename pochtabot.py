@@ -29,7 +29,7 @@ f = open('thinks.txt', 'r', encoding='UTF-8')
 thinks  = f.read().split('\n')
 f.close()
 # Создаем бота
-bot = telebot.TeleBot('5163403068:AAH-eKuDtLX0MHoN5kaXuE2hklKJlUlkpf8')
+bot = telebot.TeleBot()
 # Команда start
 @bot.message_handler(commands=["start"])
 def start(m, res=False):
