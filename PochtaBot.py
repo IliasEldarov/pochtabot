@@ -5,7 +5,7 @@ import RussianPostAPI
 from RussianPostAPI import RussianPostAPI
 import ShipmentInfoParser
 from ShipmentInfoParser import ShipmentInfoParser
-from time import gmtime, strftime
+from time import gmtime, strftime, sleep
 import schedule
 from threading import Thread
 
@@ -75,14 +75,17 @@ def draw_buttons(chat_id):
         # collect my mail button
         item = types.KeyboardButton(COMMAND_LIST_READY_FOR_COLLECTION)
         markup.add(item)
-        with db_session:
-            # buttons for all non-delivered shipments
-            nonDeliveredShipments = select(shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2)
+        try:
+            with db_session:
+                # buttons for all non-delivered shipments
+                nonDeliveredShipments = select(shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2)
 
-            for nonDeliveredShipment in nonDeliveredShipments:
+                for nonDeliveredShipment in nonDeliveredShipments:
 
-                item = types.KeyboardButton(nonDeliveredShipment.barcode)
-                markup.add(item)
+                    item = types.KeyboardButton(nonDeliveredShipment.barcode)
+                    markup.add(item)
+        except Exception as e:
+            print("Exception in draw buttons procedure", e)
 
         # show Start/Stop Automated Posting button depending on if user has turned it on or not
         item = types.KeyboardButton(COMMAND_STOP_NOTIFICATION if chat_id in auto_notificated_users.keys() else COMMAND_START_NOTIFICATION)
@@ -185,23 +188,27 @@ def handle_text(message):
 def schedule_checker():
     while True:
         schedule.run_pending()
+        sleep(5)
 
 
 def automated_notification_procedure():
-    with db_session:
-        for chat_id in auto_notificated_users.keys():
-            nonDeliveredShipments = select(shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2)
+    try:
+        with db_session:
+            for chat_id in auto_notificated_users.keys():
+                nonDeliveredShipments = select(shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2)
 
-            for nonDeliveredShipment in nonDeliveredShipments:
+                for nonDeliveredShipment in nonDeliveredShipments:
 
-                shipment_xml = RussianPostAPI.get_shipment_data(nonDeliveredShipment.barcode, POSTAL_API_KEY, POSTAL_API_PASS)
-                shipment_info = ShipmentInfoParser.parse_xml(shipment_xml)
+                    shipment_xml = RussianPostAPI.get_shipment_data(nonDeliveredShipment.barcode, POSTAL_API_KEY, POSTAL_API_PASS)
+                    shipment_info = ShipmentInfoParser.parse_xml(shipment_xml)
 
-                if (shipment_info.events[-1][0] != nonDeliveredShipment.last_event or shipment_info.events[-1][4] != nonDeliveredShipment.last_event_result):
-                    answer = get_shipment_description(shipment_info, 0)
-                    nonDeliveredShipments.last_event = shipment_info.events[-1][0]
-                    nonDeliveredShipments.last_event_result = shipment_info.events[-1][4]
-                    bot.send_message(chat_id, answer)
+                    if (shipment_info.events[-1][0] != nonDeliveredShipment.last_event or shipment_info.events[-1][4] != nonDeliveredShipment.last_event_result):
+                        answer = get_shipment_description(shipment_info, 0)
+                        nonDeliveredShipments.last_event = shipment_info.events[-1][0]
+                        nonDeliveredShipments.last_event_result = shipment_info.events[-1][4]
+                        bot.send_message(chat_id, answer)
+    except Exception as e:
+        print("Exception in Auto Notification Procedure", e)
 
 # Create the job with schedule
 schedule.every(int(AUTO_NOTIFICATION_INTERVAL)).minutes.do(automated_notification_procedure)
