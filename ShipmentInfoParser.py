@@ -41,11 +41,11 @@ class ShipmentInfoParser:
                     date_time = None
 
             shipment.events.append((
-                ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperType", "Id"]),
+                int(ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperType", "Id"])),
                 ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperType", "Name"]),
                 ShipmentInfoParser.get_att(historyRecord, ["AddressParameters", "OperationAddress", "Description"]),
                 date_time,
-                ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperAttr", "Id"]),
+                int(ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperAttr", "Id"])),
                 ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperAttr", "Name"]),
             )
             )
