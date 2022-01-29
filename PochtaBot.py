@@ -164,11 +164,9 @@ def handle_text(message):
 
             elif userEntry == COMMAND_START_NOTIFICATION:
                 auto_notificated_users[message.chat.id] = True
-                #markup = draw_buttons(message.chat.id)
                 answer = "Automated notification is ON"
             elif userEntry == COMMAND_STOP_NOTIFICATION:
                 auto_notificated_users.pop(message.chat.id)
-                #markup = draw_buttons(message.chat.id)
                 answer = "Automated notification is OFF"
             else:
                 # user entry has invalid format
@@ -209,6 +207,7 @@ def automated_notification_procedure():
                         bot.send_message(chat_id, answer)
     except Exception as e:
         print("Exception in Auto Notification Procedure", e)
+
 
 # Create the job with schedule
 schedule.every(int(AUTO_NOTIFICATION_INTERVAL)).minutes.do(automated_notification_procedure)
