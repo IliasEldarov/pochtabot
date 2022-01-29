@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 import time
-
+from time import gmtime, strftime, sleep
 
 class ShipmentInfo:
 
@@ -11,16 +11,26 @@ class ShipmentInfo:
         self.sender = ''
         self.receiver = ''
         self.type = ''
-        self.weight = 0.0
+        self.weight = 0
         self.events = []
 
     def __str__(self):
-        return f"{self.type} ({self.weight} g.) \nFrom:{self.sender} {self.departure_index}\nTo: {self.receiver} {self.destination_index}"
+        return f"{self.type} ({self.weight} g.) \n" + \
+               strftime("%a, %d %b %H:%M", self.events[-1][3]) + " : " \
+               f"{self.events[-1][2]}, {self.events[-1][5]}" + \
+               "\nDeparted: " + strftime("%a, %d %b %H:%M", self.events[0][3]) + \
+               f" from {self.departure_index}, {self.sender}" + \
+               f"\nTo: {self.destination_index}, {self.receiver}"
+
 
 class ShipmentInfoParser:
 
     @staticmethod
     def parse_xml(xml):
+        # if we have empty XML than lets return Nothing
+        if not xml:
+            return None
+
         shipment = ShipmentInfo()
 
         # envelope = ET.parse('otv.xml').getroot()
@@ -33,7 +43,7 @@ class ShipmentInfoParser:
         for historyRecord in operationHistoryData:
 
             date_time = ShipmentInfoParser.get_att(historyRecord, ["OperationParameters", "OperDate"])
-            #2021-12-14T08:48:36.000+03:00
+            # 2021-12-14T08:48:36.000+03:00
             if date_time:
                 try:
                     date_time = time.strptime(date_time[:19], "%Y-%m-%dT%H:%M:%S")
@@ -71,7 +81,7 @@ class ShipmentInfoParser:
         elif len(path) == 3:
             return ShipmentInfoParser.get_att3(node, path)
         else:
-            return None
+            raise NotImplemented #
 
     @staticmethod
     def get_att2(node, path):
