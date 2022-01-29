@@ -5,13 +5,16 @@ import RussianPostAPI
 from RussianPostAPI import RussianPostAPI
 import ShipmentInfoParser
 from ShipmentInfoParser import ShipmentInfoParser
-from time import gmtime, strftime, sleep
+from time import sleep
 import schedule
 from threading import Thread
+from sys import argv
 
+_, DB_URL, DEBUG = argv
+DEBUG = DEBUG == bool(DEBUG)
 
 db = Database()
-db.bind(provider='sqlite', filename='F:\\papermailbot.db', create_db=False)
+db.bind(provider='sqlite', filename=DB_URL, create_db=False)
 set_sql_debug(False)
 
 
@@ -29,110 +32,141 @@ class Configuration(db.Entity):
     id = PrimaryKey(int, auto=True)
     param = Required(str)
     value = Required(str)
+    description = Optional(str)
+
 
 db.generate_mapping(create_tables=False)
 
 # read configuration parameters from DB
 with db_session:
-
-    BOT_ID = Configuration[1].value
-    POSTAL_API_KEY = Configuration[2].value
-    POSTAL_API_PASS = Configuration[3].value
-    AUTO_NOTIFICATION_INTERVAL = Configuration[4].value
+    # no try block - if this fails we cant continue
+    CFG_BOT_ID = Configuration[1].value
+    CFG_POSTAL_API_KEY = Configuration[2].value
+    CFG_POSTAL_API_PASS = Configuration[3].value
+    CFG_AUTO_NOTIFICATION_INTERVAL = int(Configuration[4].value)
+    CFG_MAX_BUTTONS_TO_SHOW = int(Configuration[5].value)
 
 
 def get_shipment_description(shipment_info, last_event):
-
-    desc = f"{shipment_info.type} ({shipment_info.weight} g.) \n" + \
-           strftime("%a, %d %b %H:%M", shipment_info.events[-1][3]) + " : "\
-           f"{shipment_info.events[-1][2]}, {shipment_info.events[-1][5]}" + \
-           "\nDeparted: " + strftime("%a, %d %b %H:%M", shipment_info.events[0][3]) + \
-           f" from {shipment_info.departure_index}, {shipment_info.sender}" +\
-           f"\nTo: {shipment_info.destination_index}, {shipment_info.receiver}"
-
-    return desc
+    # presence of last_event is reserved for future use
+    return str(shipment_info)
 
 
-# Create bot
-bot = telebot.TeleBot(BOT_ID)
-
-COMMAND_LIST_READY_FOR_COLLECTION = "Ready for collection"
+COMMAND_START = "start"
+COMMAND_LIST_READY_FOR_COLLECTION = "Ready for Collection?"
 COMMAND_START_NOTIFICATION = "Start Notification"
 COMMAND_STOP_NOTIFICATION = "Stop Notification"
+MESSAGE_START = 'Hello, enter shipment id for info (13-14 symbols)'
+MESSAGE_NOTHING_READY_FOR_COLLECTION = "No shipments to collect"
+MESSAGE_ARCHIVED_SHIPMENT = "This shipment has been delivered, try again"
+MESSAGE_INVALID_SHIPMENT = "Can't find this shipment id, try again"
+MESSAGE_INVALID_SHIPMENT_FORMAT = "Please re-enter, shipment id must be 13-14 symbols"
+MESSAGE_GENERAL_ERROR = "Error processing request, try again"
+BUTTON_AUTO_NOTIFICATION_ON = "Automatic notifications are ON"
+BUTTON_AUTO_NOTIFICATION_OFF = "Automatic notifications are OFF"
 
-auto_notificated_users = {}
+auto_notified_chats = set()
+
+# Create bot
+bot = telebot.TeleBot(CFG_BOT_ID)
+
 
 # Start command Handler
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=[COMMAND_START])
 def start(message, res=False):
     markup = draw_buttons(message.chat.id)
-    bot.send_message(message.chat.id, 'Hello, enter mailing id (14 digits) to get info', reply_markup=markup)
+    bot.send_message(message.chat.id, MESSAGE_START, reply_markup=markup)
 
 
 def draw_buttons(chat_id):
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
-        # collect my mail button
-        item = types.KeyboardButton(COMMAND_LIST_READY_FOR_COLLECTION)
-        markup.add(item)
-        try:
-            with db_session:
-                # buttons for all non-delivered shipments
-                nonDeliveredShipments = select(shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2)
+    # collect my mail button
+    item = types.KeyboardButton(COMMAND_LIST_READY_FOR_COLLECTION)
+    markup.add(item)
+    try:
+        with db_session:
+            # generate buttons for all non-delivered shipments we have in DB
+            non_delivered_shipments = select(
+                shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2
+            )
+            buttons_counter = 2 # two buttoms are always on the screen
+            for non_delivered_shipment in non_delivered_shipments:
 
-                for nonDeliveredShipment in nonDeliveredShipments:
+                # do not clutter entire screen with buttons
+                if buttons_counter > CFG_MAX_BUTTONS_TO_SHOW:
+                    break
 
-                    item = types.KeyboardButton(nonDeliveredShipment.barcode)
-                    markup.add(item)
-        except Exception as e:
-            print("Exception in draw buttons procedure", e)
+                item = types.KeyboardButton(non_delivered_shipment.barcode)
+                markup.add(item)
+                buttons_counter += 1
 
-        # show Start/Stop Automated Posting button depending on if user has turned it on or not
-        item = types.KeyboardButton(COMMAND_STOP_NOTIFICATION if chat_id in auto_notificated_users.keys() else COMMAND_START_NOTIFICATION)
-        markup.add(item)
-        return markup
+    except Exception as e:
+        print("Exception in draw buttons procedure", e)
+        if DEBUG:
+            raise e
+
+    # show Start/Stop Automated Notification button
+    item = types.KeyboardButton(
+        COMMAND_STOP_NOTIFICATION if chat_id in auto_notified_chats else COMMAND_START_NOTIFICATION
+    )
+    markup.add(item)
+    return markup
 
 
 # Handle user messages
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
     try:
-        userEntry = str(message.text.strip())
-        markup = None
+        user_entry = message.text.strip()
         answer = None
         with db_session:
 
-            if userEntry == COMMAND_LIST_READY_FOR_COLLECTION:
-                # we will request Russian post if the shipments arrived just now
-                # we will find shipments that are not marked as arrived in the DB
+            if user_entry == COMMAND_LIST_READY_FOR_COLLECTION:
+
+                # we will find shipments that are registered in DB but not marked as arrived/delivered
                 shipments_to_check_for_arrival = select(
                     shipment for shipment in Shipment if shipment.chat == message.chat.id and \
                     (shipment.last_event != 2 and not (shipment.last_event == 8 and shipment.last_event_result == 2))
                 )
-                # and will request Russian post for their up-to-date status
+                # and will request Russian Post for their up-to-date status and commit this updated status to DB
                 for shipment_db_record in shipments_to_check_for_arrival:
-                    #print("requesting post for update on", shipment_db_record.barcode)
-                    shipment_xml = RussianPostAPI.get_shipment_data(shipment_db_record.barcode, POSTAL_API_KEY, POSTAL_API_PASS)
+                    shipment_xml = RussianPostAPI.get_shipment_data(
+                        shipment_db_record.barcode, CFG_POSTAL_API_KEY, CFG_POSTAL_API_PASS
+                    )
                     shipment_info = ShipmentInfoParser.parse_xml(shipment_xml)
                     shipment_db_record.last_event = shipment_info.events[-1][0]
                     shipment_db_record.last_event_result = shipment_info.events[-1][4]
 
-                arrivedShipments = select(
-                    shipment for shipment in Shipment if shipment.chat == message.chat.id and shipment.last_event == 8 and shipment.last_event_result == 2)
+                # now we have uo-to-date status of arrival in the DB
+                # reading it from the DB
+                arrived_shipments = select(
+                    shipment for shipment in Shipment if shipment.chat == message.chat.id and shipment.last_event == 8 \
+                    and shipment.last_event_result == 2
+                )
 
                 answer = ""
-                for shipment_db_record in arrivedShipments:
+                for shipment_db_record in arrived_shipments:
                     answer += str(shipment_db_record.barcode) + "\n"
                 if not answer:
-                    answer = "There are no arrived shipments"
+                    answer = MESSAGE_NOTHING_READY_FOR_COLLECTION
 
-            elif userEntry and userEntry.isdigit() and 14 == len(str(int(userEntry))):
+            elif user_entry == COMMAND_START_NOTIFICATION:
+                auto_notified_chats.add(message.chat.id)
+                answer = BUTTON_AUTO_NOTIFICATION_ON
 
-                barcode = userEntry
+            elif user_entry == COMMAND_STOP_NOTIFICATION:
+                if message.chat.id in auto_notified_chats:
+                    auto_notified_chats.remove(message.chat.id)
+                answer = BUTTON_AUTO_NOTIFICATION_OFF
+
+            elif user_entry and 13 <= len(user_entry) <= 14:
+
+                barcode = user_entry
                 shipment_db_record = Shipment.get(barcode=barcode, chat=message.chat.id)
                 if shipment_db_record:
                     # barcode was found in the DB
-                    shipment_xml = RussianPostAPI.get_shipment_data(barcode, POSTAL_API_KEY, POSTAL_API_PASS)
+                    shipment_xml = RussianPostAPI.get_shipment_data(barcode, CFG_POSTAL_API_KEY, CFG_POSTAL_API_PASS)
                     shipment_info = ShipmentInfoParser.parse_xml(shipment_xml)
                     shipment_db_record.last_event = shipment_info.events[-1][0]
                     shipment_db_record.last_event_result = shipment_info.events[-1][4]
@@ -140,16 +174,17 @@ def handle_text(message):
                     answer = get_shipment_description(shipment_info, 0)
 
                 else:
-                    # barcode not found in DD
-                    shipment_xml = RussianPostAPI.get_shipment_data(barcode, POSTAL_API_KEY, POSTAL_API_PASS)
+                    # barcode not found in DB
+                    shipment_xml = RussianPostAPI.get_shipment_data(barcode, CFG_POSTAL_API_KEY, CFG_POSTAL_API_PASS)
                     shipment_info = ShipmentInfoParser.parse_xml(shipment_xml)
 
                     if shipment_info and shipment_info.events[-1][0] == 2:
-                        # Russian post returned error
-                        answer = "This shipping has been delivered, try again"
+                        # Russian post says is has been collected - nothing to track
+                        answer = MESSAGE_ARCHIVED_SHIPMENT
 
                     elif shipment_info:
 
+                        # new and undelivered shipment
                         shipment_db_record = Shipment(
                             barcode=barcode,
                             chat=message.chat.id,
@@ -159,26 +194,23 @@ def handle_text(message):
                         answer = get_shipment_description(shipment_info, 0)
 
                     else:
-                        # Russian post returned error
-                        answer = "Can't find mail id, try again"
+                        # Russian Post returned error or shipment not found by ID (invalid id)
+                        answer = MESSAGE_INVALID_SHIPMENT
 
-            elif userEntry == COMMAND_START_NOTIFICATION:
-                auto_notificated_users[message.chat.id] = True
-                answer = "Automated notification is ON"
-            elif userEntry == COMMAND_STOP_NOTIFICATION:
-                auto_notificated_users.pop(message.chat.id)
-                answer = "Automated notification is OFF"
             else:
                 # user entry has invalid format
-                answer = "Enter mailing id (14 digits)"
+                answer = MESSAGE_INVALID_SHIPMENT_FORMAT
 
     except Exception as e:
         print("Exception processing user entry", e)
-        answer = "Error processing request, try again"
+        answer = MESSAGE_GENERAL_ERROR
+        if DEBUG:
+            raise e
 
-    # Отсылаем юзеру сообщение в его чат
     if not answer:
-        answer = "Error processing request, try again"
+        print("Empty answer - logical failure")
+        answer = MESSAGE_GENERAL_ERROR
+
     markup = draw_buttons(message.chat.id)
     bot.send_message(message.chat.id, answer, reply_markup=markup)
 
@@ -186,40 +218,56 @@ def handle_text(message):
 def schedule_checker():
     while True:
         schedule.run_pending()
-        sleep(5)
+        sleep(5)# unload CPU between schedule runs
 
 
+# this procedure checks if there is update to shipment registered in DB
 def automated_notification_procedure():
     try:
         with db_session:
-            for chat_id in auto_notificated_users.keys():
-                nonDeliveredShipments = select(shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2)
+            for chat_id in auto_notified_chats:
+                non_delivered_shipments = select(
+                    shipment for shipment in Shipment if shipment.chat == chat_id and shipment.last_event != 2
+                )
 
-                for nonDeliveredShipment in nonDeliveredShipments:
+                for non_delivered_shipment in non_delivered_shipments:
 
-                    shipment_xml = RussianPostAPI.get_shipment_data(nonDeliveredShipment.barcode, POSTAL_API_KEY, POSTAL_API_PASS)
+                    shipment_xml = RussianPostAPI.get_shipment_data(
+                        non_delivered_shipment.barcode, CFG_POSTAL_API_KEY, CFG_POSTAL_API_PASS
+                    )
                     shipment_info = ShipmentInfoParser.parse_xml(shipment_xml)
 
-                    if (shipment_info.events[-1][0] != nonDeliveredShipment.last_event or shipment_info.events[-1][4] != nonDeliveredShipment.last_event_result):
+                    if shipment_info.events[-1][0] != non_delivered_shipment.last_event or \
+                            shipment_info.events[-1][4] != non_delivered_shipment.last_event_result:
                         answer = get_shipment_description(shipment_info, 0)
-                        nonDeliveredShipments.last_event = shipment_info.events[-1][0]
-                        nonDeliveredShipments.last_event_result = shipment_info.events[-1][4]
-                        bot.send_message(chat_id, answer)
+                        non_delivered_shipments.last_event = shipment_info.events[-1][0]
+                        non_delivered_shipments.last_event_result = shipment_info.events[-1][4]
+
+                        # as a result of above code some items may becime "delivered",
+                        # so we need to hide them so we have to redraw buttons
+                        markup = draw_buttons(chat_id.chat.id)
+
+                        bot.send_message(chat_id, answer, markup)
+
     except Exception as e:
         print("Exception in Auto Notification Procedure", e)
+        if DEBUG:
+            raise e
 
 
 # Create the job with schedule
-schedule.every(int(AUTO_NOTIFICATION_INTERVAL)).minutes.do(automated_notification_procedure)
+schedule.every(CFG_AUTO_NOTIFICATION_INTERVAL).minutes.do(automated_notification_procedure)
 
-# Spin up a thread to run the schedule check so it doesn't block your bot.
-# This will take the function schedule_checker which will check every second
-# to see if the scheduled job needs to be ran.
+# Spin up a thread to run the schedule check so it doesn't block the bot.
+# Teacher please understand and forgive there is no thread safety implemented.
 Thread(target=schedule_checker).start()
 
 while True:
     print("The bot is now running")
     try:
         bot.polling(none_stop=True, interval=0)
-    except:
-        print("The bot has crashed, restarting")
+
+    except Exception as e:
+        print("Message polling has restarted with the following reason:", e)
+        if DEBUG:
+            raise e
